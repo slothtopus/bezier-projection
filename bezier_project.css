@@ -13,11 +13,6 @@ path {
   stroke-width: 7;
 }
 
-line {
-  color: green;
-  stroke-width: 7;
-}
-
 #movePoint {
   fill: grey;
   cursor: pointer;
@@ -30,4 +25,9 @@ line {
 #movePoint.selected {
   filter: brightness(1.4);
   stroke: yellow;
+}
+
+.approx-line {
+  stroke-width: 2px;
+  stroke: red;
 }
