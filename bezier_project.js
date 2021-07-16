@@ -15,18 +15,38 @@ Further recursion to support longer moves
 clever line finding
 */
 
+let t = 0
+let path_index = 0
+const n_segments = 88
+
 let path_def = [
   {
+    type: 'cubic',
+    n_segments: n_segments,
     start: [100, 100],
     control1: [900, 0],
     control2: [100, 900],
     end: [900, 900],
   },
   {
+    type: 'cubic',
+    n_segments: n_segments,
     start: [900, 900],
     control1: [900, 500],
     control2: [400, 400],
     end: [600, 50],
+  },
+  {
+    type: 'line',
+    n_segments: 1,
+    start: [600, 50],
+    end: [600, 700],
+  },
+  {
+    type: 'line',
+    n_segments: 1,
+    start: [600, 700],
+    end: [150, 350],
   },
 ]
 
@@ -34,16 +54,12 @@ let mouse_x
 let mouse_y
 let scaleFactor
 
-let t = 0
-let path_index = 0
-const n_segments = 12
-
 //let counter_i = 0
 
 function drawLineApproximation() {
   path_def.forEach((p) => {
-    for (let s = 0; s < n_segments; s++) {
-      const coords = getLineForSegment(s, n_segments, p)
+    for (let s = 0; s < p.n_segments; s++) {
+      const coords = getLineForSegment(s, p)
       drawLine(coords[0], coords[1])
     }
   })
@@ -91,9 +107,10 @@ function movePointMousemove(event) {
   }
 
   const vals = moveRecursive(moveVector, t, path_def, path_index)
+  console.log('moveRecursive returns: ', vals)
   t = vals.t
   path_index = vals.path_index
-  const new_pos = cubicBezier(t, path_def[path_index])
+  const new_pos = getPointOnPath(t, path_def[path_index])
   updateMovePoint(new_pos[0], new_pos[1])
 
   mouse_x = event.clientX
@@ -123,6 +140,8 @@ window.onload = () => {
 
   drawLineApproximation()
   moveRecursive({ x: -250, y: -250 }, 1, path_def, 0)
+  console.log('SECOND TEST')
+  findMoves({ x: 0, y: 10 }, 0, path_def, 2)
 }
 
 /*
@@ -139,7 +158,24 @@ getLineFromT(t, step_size, line_def)
 Gets the line start and end coords from t and step size
 */
 
-function cubicBezier(t, w) {
+function lineFromTbounds(t_bounds, path_def) {
+  const start_point = getPointOnPath(t_bounds[0], path_def)
+  const end_point = getPointOnPath(t_bounds[1], path_def)
+  return [
+    { x: start_point[0], y: start_point[1] },
+    { x: end_point[0], y: end_point[1] },
+  ]
+}
+
+function getPointOnPath(t, p) {
+  if (p.type == 'cubic') {
+    return getPointOnCubicBezier(t, p)
+  } else if (p.type == 'line') {
+    return getPointOnLine(t, p)
+  }
+}
+
+function getPointOnCubicBezier(t, w) {
   const t2 = t * t
   const t3 = t2 * t
   const mt = 1 - t
@@ -157,6 +193,15 @@ function cubicBezier(t, w) {
   ]
 }
 
+function getPointOnLine(t, l) {
+  const x_offset = l.start[0]
+  const x_grad = l.end[0] - l.start[0]
+  const y_offset = l.start[1]
+  const y_grad = l.end[1] - l.start[1]
+  return [x_offset + t * x_grad, y_offset + t * y_grad]
+}
+
+/*
 function move(v, t_, path_def, path_index) {
   const epsilon = 0.000001
   console.log(
@@ -201,9 +246,6 @@ function move(v, t_, path_def, path_index) {
   const chosen_move = all_moves[longest_move_i]
   console.log('chosen_move: ', chosen_move)
 
-  /*if (chosen_move.path_index == 1) {
-    debugger
-  }*/
 
   if (chosen_move.distance < epsilon) {
     console.log('Returning:', {
@@ -220,11 +262,12 @@ function move(v, t_, path_def, path_index) {
     )
   }
 }
+*/
 
 function moveRecursive(v, t_, path_def, path_index) {
   //debugger
   const moves = findMoves(v, t_, path_def, path_index, 0)
-
+  console.log('moveRecursive: moves: ', moves)
   const max_distance = Math.max(...moves.map((m) => m.total_distance))
   const best_move_i = moves.findIndex((m) => m.total_distance == max_distance)
   if (best_move_i == -1) {
@@ -239,7 +282,7 @@ function moveRecursive(v, t_, path_def, path_index) {
 }
 
 function findMoves(v, t_, path_def, path_index, distance) {
-  /*console.log(
+  console.log(
     'findMoves(v: ',
     v,
     ', t_: ',
@@ -249,12 +292,16 @@ function findMoves(v, t_, path_def, path_index, distance) {
     ', distance: ',
     distance,
     ')'
-  )*/
+  )
   const epsilon = 0.000001
 
-  const lines = getAllLinesForT2(t_, n_segments, path_def, path_index)
+  //const lines = getAllLinesForT2(t_, n_segments, path_def, path_index)
+  const lines = getAllLinesForT2(t_, path_def, path_index)
 
   const all_moves = lines.map((x) => {
+    /*if (path_def[x.path_index].type == 'line') {
+      debugger
+    }*/
     const line_vec = lineToVector(x.line)
     const t_unbounded = rescale(x.t, x.t_bounds, [0, 1])
     const moved = traverseVector(line_vec, t_unbounded, v)
@@ -270,6 +317,8 @@ function findMoves(v, t_, path_def, path_index, distance) {
       distance: moved_distance,
     }
   })
+
+  console.log('all_moves: ', all_moves)
 
   return all_moves.flatMap((m) => {
     if (m.distance < epsilon) {
@@ -311,25 +360,20 @@ function rescale(t_, current_bounds, new_bounds) {
   return new_bounds[0] + t_norm * (new_bounds[1] - new_bounds[0])
 }
 
-function getLineForSegment(s, n_segments, line_def) {
-  const t_bounds = segmentBoundsForS(s, n_segments)
-  const start_point = cubicBezier(t_bounds[0], line_def)
-  const end_point = cubicBezier(t_bounds[1], line_def)
-
-  return [
-    { x: start_point[0], y: start_point[1] },
-    { x: end_point[0], y: end_point[1] },
-  ]
+function getLineForSegment(s, line_def) {
+  const t_bounds = segmentBoundsForS(s, line_def.n_segments)
+  return lineFromTbounds(t_bounds, line_def)
 }
 
 /*function getLineForT(t, n_segments, line_def) {
   return getLineForSegment(getSegmentFromT(t, n_segments), n_segments, line_def)
 }*/
 
-function getAllLinesForT2(t, n_segments, path_def, path_index) {
+function getAllLinesForT2(t, path_def, path_index) {
   //console.log('getAllLinesForT2(t: ', t, ', ..., path_index: ', path_index)
   const epsilon = 0.000001
 
+  const n_segments = path_def[path_index].n_segments
   const seg_pos = t / (1 / n_segments)
   const current_seg = Math.floor(seg_pos)
 
@@ -345,14 +389,16 @@ function getAllLinesForT2(t, n_segments, path_def, path_index) {
     let t_new
     let t_bounds
     let path_index_new = path_index
+    let path = path_def[path_index]
 
     if (s == -1) {
       // We're epsilon close to the start of segment 0 of the path
       // so we include the last segment of the previous path (if this exists)
       if (path_index > 0) {
-        t_bounds = segmentBoundsForS(n_segments - 1, n_segments)
-        t_new = t_bounds[1]
         path_index_new = path_index - 1
+        path = path_def[path_index_new]
+        t_bounds = segmentBoundsForS(path.n_segments - 1, path.n_segments)
+        t_new = t_bounds[1]
       } else {
         return []
       }
@@ -360,25 +406,26 @@ function getAllLinesForT2(t, n_segments, path_def, path_index) {
       // We're epsilon close the end of the last segment of the path
       // so we include the first segment of the next path (if this exists)
       if (path_index < path_def.length - 1) {
-        t_bounds = segmentBoundsForS(0, n_segments)
-        t_new = t_bounds[0]
         path_index_new = path_index + 1
+        path = path_def[path_index_new]
+        t_bounds = segmentBoundsForS(0, path.n_segments)
+        t_new = t_bounds[0]
       } else {
         return []
       }
     } else if (s > current_seg) {
       // We're epsilon close the end of an internal (i.e. not end or start) segment in the path
       // so we include the next segment in the path
-      t_bounds = segmentBoundsForS(s, n_segments)
+      t_bounds = segmentBoundsForS(s, path.n_segments)
       t_new = t_bounds[0]
     } else if (s < current_seg) {
       // We're epsilon close the start of an internal (i.e. not end or start) segment in the path
       // so we include the previous segment in the path
-      t_bounds = segmentBoundsForS(s, n_segments)
+      t_bounds = segmentBoundsForS(s, path.n_segments)
       t_new = t_bounds[1]
     } else {
       // We're somewhere in the middle of an internal (i.e. not end or start) segment in the path
-      t_bounds = segmentBoundsForS(s, n_segments)
+      t_bounds = segmentBoundsForS(s, path.n_segments)
       t_new = t
     }
 
@@ -386,141 +433,11 @@ function getAllLinesForT2(t, n_segments, path_def, path_index) {
       {
         t_bounds: t_bounds,
         t: t_new,
-        line: lineFromTbounds(t_bounds, path_def[path_index_new]),
+        line: lineFromTbounds(t_bounds, path),
         path_index: path_index_new,
       },
     ]
   })
-}
-
-/*function getAllLinesForT(t, n_segments, path_def, path_index) {
-  //
-  //Returns all lines that t falls on
-  //If t falls in the middle of a segment, this is just the line for the current segment
-  //If t falls on or near the start of a segment, this is the current segment and previous segment (if this exists)
-  //If t falls near the end of a segment, this is the current segment and next segment (if this exists)
-  //
-
-  console.log('getAllLinesForT: ', counter_i++)
-  const epsilon = 0.000001
-
-  const seg_pos = t / (1 / n_segments)
-  let s = Math.floor(seg_pos)
-  s = Math.min(Math.max(s, 0), n_segments - 1)
-
-  const lower_seg_boundary = Math.floor(seg_pos)
-  const upper_seg_boundary = Math.ceil(seg_pos)
-
-  const near_lower_boundary = Math.abs(seg_pos - lower_seg_boundary) < epsilon
-  const near_upper_boundary =
-    seg_pos != upper_seg_boundary &&
-    Math.abs(seg_pos - upper_seg_boundary) < epsilon
-
-  const t_bounds = segmentBoundsForS(s, n_segments)
-
-  if (
-    near_lower_boundary &&
-    lower_seg_boundary != 0 &&
-    lower_seg_boundary != n_segments
-  ) {
-    // Crossing segment to previous segment on same path
-    console.log('Crossing segment to previous segment on same path')
-    const t_bounds_prev = segmentBoundsForS(s - 1, n_segments)
-    return [
-      {
-        t_bounds: t_bounds_prev,
-        t: t_bounds_prev[1],
-        line: lineFromTbounds(t_bounds_prev, path_def[path_index]),
-        path_index: path_index,
-      },
-      {
-        t_bounds: t_bounds,
-        t: t_bounds[0],
-        line: lineFromTbounds(t_bounds, path_def[path_index]),
-        path_index: path_index,
-      },
-    ]
-  } else if (near_upper_boundary && upper_seg_boundary != n_segments) {
-    // Crossing segment to next segment on same path
-    console.log('Crossing segment to next segment on same path')
-    const t_bounds_next = segmentBoundsForS(s + 1, n_segments)
-    return [
-      {
-        t_bounds: t_bounds_next,
-        t: t_bounds_next[0],
-        line: lineFromTbounds(t_bounds_next, path_def[path_index]),
-        path_index: path_index,
-      },
-      {
-        t_bounds: t_bounds,
-        t: t_bounds[1],
-        line: lineFromTbounds(t_bounds, path_def[path_index]),
-        path_index: path_index,
-      },
-    ]
-  } else if (near_lower_boundary && lower_seg_boundary == 0 && path_index > 0) {
-    // Current segment start segment of path, crossing into last segment of previous path
-    console.log(
-      'Current segment start segment of path, crossing into last segment of previous path'
-    )
-    const t_bounds_prev_line = segmentBoundsForS(n_segments - 1, n_segments)
-    return [
-      {
-        t_bounds: t_bounds_prev_line,
-        t: t_bounds_prev_line[1],
-        line: lineFromTbounds(t_bounds_prev_line, path_def[path_index - 1]),
-        path_index: path_index - 1,
-      },
-      {
-        t_bounds: t_bounds,
-        t: t_bounds[0],
-        line: lineFromTbounds(t_bounds, path_def[path_index]),
-        path_index: path_index,
-      },
-    ]
-  } else if (
-    ((near_upper_boundary && upper_seg_boundary == n_segments) ||
-      (near_lower_boundary && lower_seg_boundary == n_segments)) &&
-    path_index < path_def.length - 1
-  ) {
-    // Current segment end segment of path, crossing into first segment of next path
-    console.log(
-      'Current segment end segment of path, crossing into first segment of next path'
-    )
-    const t_bounds_next_line = segmentBoundsForS(0, n_segments)
-    return [
-      {
-        t_bounds: t_bounds_next_line,
-        t: t_bounds_next_line[0],
-        line: lineFromTbounds(t_bounds_next_line, path_def[path_index + 1]),
-        path_index: path_index + 1,
-      },
-      {
-        t_bounds: t_bounds,
-        t: t_bounds[1],
-        line: lineFromTbounds(t_bounds, path_def[path_index]),
-        path_index: path_index,
-      },
-    ]
-  } else {
-    return [
-      {
-        t_bounds: t_bounds,
-        t: t,
-        line: lineFromTbounds(t_bounds, path_def[path_index]),
-        path_index: path_index,
-      },
-    ]
-  }
-}*/
-
-function lineFromTbounds(t_bounds, path_def) {
-  const start_point = cubicBezier(t_bounds[0], path_def)
-  const end_point = cubicBezier(t_bounds[1], path_def)
-  return [
-    { x: start_point[0], y: start_point[1] },
-    { x: end_point[0], y: end_point[1] },
-  ]
 }
 
 function lineToVector(line) {
@@ -613,7 +530,7 @@ function getVectorT(vec, pos) {
   Gets the t value corresponding to point pos on vector vec.
   It is assumed that pos lies on vec.
   */
-  if (pos.x == 0 || pos.y == 0) {
+  if (pos.x == 0 && pos.y == 0) {
     return 0
   } else {
     const theta_vec = Math.atan(vec.y / vec.x)
