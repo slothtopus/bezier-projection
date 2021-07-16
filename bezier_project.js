@@ -6,18 +6,25 @@ Refactor into class
 Add enter and exit line callbacks
 Add path position callback
 Add non display paths
+Factor path components into classes
+
+
+
 
 Next:
-Add straight lines in path defs
+
 
 Done:
+Track full movement
+Filter out false movebacks
+Add straight lines in path defs
 Further recursion to support longer moves
 clever line finding
 */
 
 let t = 0
 let path_index = 0
-const n_segments = 88
+const n_segments = 50
 
 let path_def = [
   {
@@ -107,7 +114,7 @@ function movePointMousemove(event) {
   }
 
   const vals = moveRecursive(moveVector, t, path_def, path_index)
-  console.log('moveRecursive returns: ', vals)
+  //console.log('moveRecursive returns: ', vals)
   t = vals.t
   path_index = vals.path_index
   const new_pos = getPointOnPath(t, path_def[path_index])
@@ -140,8 +147,8 @@ window.onload = () => {
 
   drawLineApproximation()
   moveRecursive({ x: -250, y: -250 }, 1, path_def, 0)
-  console.log('SECOND TEST')
-  findMoves({ x: 0, y: 10 }, 0, path_def, 2)
+  //console.log('SECOND TEST')
+  //findMoves({ x: 0, y: 10 }, 0, path_def, 2)
 }
 
 /*
@@ -266,7 +273,7 @@ function move(v, t_, path_def, path_index) {
 
 function moveRecursive(v, t_, path_def, path_index) {
   //debugger
-  const moves = findMoves(v, t_, path_def, path_index, 0)
+  const moves = findMoves(v, t_, path_def, path_index, 0, [])
   console.log('moveRecursive: moves: ', moves)
   const max_distance = Math.max(...moves.map((m) => m.total_distance))
   const best_move_i = moves.findIndex((m) => m.total_distance == max_distance)
@@ -281,8 +288,10 @@ function moveRecursive(v, t_, path_def, path_index) {
   }
 }
 
-function findMoves(v, t_, path_def, path_index, distance) {
-  console.log(
+function findMoves(v, t_, path_def, path_index, distance, journey) {
+  //journey.push({ path_index: path_index, t: t_ })
+  journey = [...journey, { path_index: path_index, t: t_, distance: distance }]
+  /*console.log(
     'findMoves(v: ',
     v,
     ', t_: ',
@@ -292,13 +301,14 @@ function findMoves(v, t_, path_def, path_index, distance) {
     ', distance: ',
     distance,
     ')'
-  )
+  )*/
+
   const epsilon = 0.000001
 
   //const lines = getAllLinesForT2(t_, n_segments, path_def, path_index)
   const lines = getAllLinesForT2(t_, path_def, path_index)
 
-  const all_moves = lines.map((x) => {
+  let all_moves = lines.map((x) => {
     /*if (path_def[x.path_index].type == 'line') {
       debugger
     }*/
@@ -318,9 +328,14 @@ function findMoves(v, t_, path_def, path_index, distance) {
     }
   })
 
-  console.log('all_moves: ', all_moves)
+  //console.log('all_moves: ', all_moves)
 
-  return all_moves.flatMap((m) => {
+  if (Math.max(...all_moves.map((x) => x.distance)) >= epsilon) {
+    // If we've got a good move, filter out the bad ones
+    all_moves = all_moves.filter((x) => x.distance >= epsilon)
+  }
+
+  /*return all_moves.flatMap((m) => {
     if (m.distance < epsilon) {
       return [
         { t: m.t_new, path_index: m.path_index, total_distance: distance },
@@ -334,7 +349,48 @@ function findMoves(v, t_, path_def, path_index, distance) {
         distance + m.distance
       )
     }
+  })*/
+  const evaluated_moves = all_moves.flatMap((m) => {
+    if (m.distance < epsilon) {
+      return [
+        {
+          t: m.t_new,
+          path_index: m.path_index,
+          total_distance: distance,
+          journey: journey,
+          /*func_call: {
+            v,
+            t_,
+            path_def,
+            path_index,
+            distance,
+          },
+          all_moves: {
+            ...m,
+          },*/
+        },
+      ]
+    } else {
+      return findMoves(
+        m.v_new,
+        m.t_new,
+        path_def,
+        m.path_index,
+        distance + m.distance,
+        journey
+      )
+    }
   })
+
+  //console.log('evaluated_moves: ', evaluated_moves)
+
+  return evaluated_moves
+  /*if (Math.max(...evaluated_moves.map((x) => x.total_distance)) > epsilon) {
+    // We've got at least one decent move, so filter out the bad ones
+    return evaluated_moves.filter((x) => x.total_distance >= epsilon)
+  } else {
+    return evaluated_moves
+  }*/
 }
 
 function segmentBoundsForS(s, n_segments) {
